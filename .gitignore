@@ -1,0 +1,13 @@
+# Segredos e Credenciais
+.env
+*.env
+*.enc
+.ciphersong_vault.enc
+
+# Ficheiros compilados e Cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.agents/
+.antigravityrules

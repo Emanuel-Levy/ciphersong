@@ -1,0 +1,59 @@
+[project]
+name = "ciphersong"
+version = "1.0.0"
+description = "Detector Vocal de Tom em Tempo Real (RAM-Only) e Repertório de Músicas Ensaiadas"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "Levy", email = "levy@ciphersong.app" }
+]
+dependencies = [
+    "flet>=1.0.0",
+    "flet-audio-recorder>=1.0.0",
+    "numpy>=1.26.0",
+    "httpx>=0.27.0",
+    "cryptography>=42.0.0",
+]
+
+[project.optional-dependencies]
+desktop = [
+    "sounddevice>=0.5.0",
+    "pymongo[srv]>=4.8.0",
+    "python-dotenv>=1.0.0",
+]
+backend = [
+    "fastapi>=0.115.0",
+    "uvicorn>=0.30.0",
+    "pymongo[srv]>=4.8.0",
+    "python-dotenv>=1.0.0",
+    "pydantic>=2.8.0",
+]
+
+[tool.flet]
+org = "com.ciphersong"
+product = "CipherSong"
+company = "CipherSong Studio"
+copyright = "Copyright (C) 2026 CipherSong"
+permissions = ["microphone"]
+
+[tool.flet.app]
+path = "."
+exclude = [
+    ".env",
+    ".git",
+    ".agents",
+    ".github",
+    ".pytest_cache",
+    "__pycache__",
+    "tests",
+    "backend_api.py",
+    "agents_system.py",
+]
+
+[tool.flet.android]
+adaptive_icon_background = "#0D1117"
+
+[tool.flet.android.permission]
+"android.permission.RECORD_AUDIO" = true
+"android.permission.MODIFY_AUDIO_SETTINGS" = true
+"android.permission.INTERNET" = true

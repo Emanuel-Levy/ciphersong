@@ -1,0 +1,45 @@
+name: Build CipherSong Android APK
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout do código (sem arquivos .env)
+        uses: actions/checkout@v4
+
+      - name: Configurar Java JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Configurar Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Configurar Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instalar Flet CLI e dependências de empacotamento
+        run: |
+          python -m pip install --upgrade pip
+          pip install "flet[all]>=1.0.0" flet-audio-recorder numpy httpx cryptography
+
+      - name: Compilar APK Android (flet build apk)
+        run: |
+          flet build apk --verbose
+
+      - name: Publicar Artefato APK para Download
+        uses: actions/upload-artifact@v4
+        with:
+          name: CipherSong-Android-APK
+          path: build/apk/*.apk
+          if-no-files-found: error
