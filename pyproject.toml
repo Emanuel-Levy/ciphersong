@@ -1,11 +1,11 @@
 [project]
 name = "ciphersong"
 version = "1.0.0"
-description = "Detector Vocal de Tom em Tempo Real (RAM-Only) e Repertório de Músicas Ensaiadas"
+description = "Plataforma de Repertório Musical, Escala Semanal e Músicas a Ensaiar em Equipe"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [
-    { name = "Levy", email = "levy@ciphersong.app" }
+    { name = "CipherSong Studio", email = "contato@ciphersong.app" }
 ]
 dependencies = [
     "flet>=1.0.0",
@@ -13,6 +13,9 @@ dependencies = [
     "numpy>=1.26.0",
     "httpx>=0.27.0",
     "cryptography>=42.0.0",
+    "pymongo>=4.8.0",
+    "dnspython>=2.6.0",
+    "certifi>=2024.0.0",
 ]
 
 [project.optional-dependencies]
@@ -27,6 +30,10 @@ backend = [
     "pymongo[srv]>=4.8.0",
     "python-dotenv>=1.0.0",
     "pydantic>=2.8.0",
+]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.17.0",
 ]
 
 [tool.flet]
@@ -48,12 +55,39 @@ exclude = [
     "tests",
     "backend_api.py",
     "agents_system.py",
+    "CipherSong_Mobile.apk",
+    "Build 0.1 (Test).apk",
+    "builds",
+    "android",
+    "build_apk.ps1",
+    "Dockerfile",
+    "validar_email.py",
+    "test_agents_system.py",
+    ".ciphersong_vault.enc",
+    "*.enc",
+    "*.jks",
+    "*.log",
 ]
 
 [tool.flet.android]
-adaptive_icon_background = "#0D1117"
+adaptive_icon_background = "#1C1B20"
 
 [tool.flet.android.permission]
 "android.permission.RECORD_AUDIO" = true
 "android.permission.MODIFY_AUDIO_SETTINGS" = true
 "android.permission.INTERNET" = true
+"android.permission.VIBRATE" = true
+"android.permission.WAKE_LOCK" = true
+"android.permission.POST_NOTIFICATIONS" = true
+"android.permission.FOREGROUND_SERVICE" = true
+"android.permission.FOREGROUND_SERVICE_DATA_SYNC" = true
+
+[tool.flet.deep_linking]
+scheme = "ciphersong"
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore::DeprecationWarning:fastapi.testclient",
+]
+
+

@@ -27,6 +27,7 @@ class PitchNote:
     note_pt: str      # ex: "Sol"
     octave: int       # ex: 3
     cents_offset: float  # Desvio entre -50.0 e +50.0 cents
+    nominal_frequency_hz: float = 0.0  # Frequência padrão exata da nota (ex: 440.0 para A4)
 
     @property
     def full_name_en(self) -> str:
@@ -49,6 +50,9 @@ def frequency_to_note(frequency_hz: float, a4_hz: float = 440.0) -> PitchNote:
     exact_midi = 69.0 + 12.0 * math.log2(frequency_hz / a4_hz)
     nearest_midi = int(round(exact_midi))
 
+    # Frequência nominal exata da nota temperada (sem desvio de afinação)
+    nominal_hz = a4_hz * (2.0 ** ((nearest_midi - 69.0) / 12.0))
+
     # Desvio em cents (-50 a +50)
     cents = (exact_midi - nearest_midi) * 100.0
 
@@ -63,6 +67,7 @@ def frequency_to_note(frequency_hz: float, a4_hz: float = 440.0) -> PitchNote:
         note_pt=NOTE_NAMES_PT[pitch_class],
         octave=octave,
         cents_offset=round(cents, 1),
+        nominal_frequency_hz=round(nominal_hz, 2),
     )
 
 

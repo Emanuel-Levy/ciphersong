@@ -67,6 +67,28 @@ class TestMusicasEnsaioMongo(unittest.TestCase):
         self.assertEqual(doc["_id"], "652d8e4f1a2b3c4d5e6f7a8b")
         self.assertEqual(doc["titulo"], "Graça Infalível")
         self.assertEqual(doc["tons"], ["A", "F#m"])
+        self.assertEqual(doc["versao"], "Original")
+
+    def test_salvar_musica_com_versao_personalizada(self) -> None:
+        mock_result = MagicMock()
+        mock_result.inserted_id = "111122223333444455556666"
+        self.mock_collection.insert_one.return_value = mock_result
+
+        doc = self.repo.salvar_musica(
+            titulo="Bondade de Deus",
+            cantor_principal="Geisa",
+            tons=["D (Ré)"],
+            versao="Gabriel Guedes",
+        )
+        self.assertEqual(doc["versao"], "Gabriel Guedes")
+
+    def test_buscar_por_filtro_com_cantor(self) -> None:
+        self.mock_collection.find.return_value = [
+            {"_id": "1", "titulo": "Bondade de Deus", "cantor_principal": "Geisa", "tons": ["D"], "versao": "Gabriel Guedes"}
+        ]
+        res = self.repo.buscar_por_filtro(termo="Bondade", cantor="Geisa")
+        self.assertEqual(len(res), 1)
+        self.assertEqual(res[0]["versao"], "Gabriel Guedes")
 
 
 if __name__ == "__main__":

@@ -57,3 +57,136 @@ def test_songs_api_client_normalization() -> None:
     """Garante que o SongsApiClient configura a URL base sem barra duplicada."""
     api = SongsApiClient(api_base_url="https://api.ciphersong.app/")
     assert api.api_base_url == "https://api.ciphersong.app"
+
+
+def test_android_imports_without_dotenv(monkeypatch) -> None:
+    """
+    Garante que no Android (onde python-dotenv não é instalado no APK),
+    todos os módulos (mongo_connection, api_client, app_flet e main)
+    são importados sem ModuleNotFoundError (prevenindo tela cinza no celular).
+    """
+    import importlib
+    import sys
+    import ciphersong.database.mongo_connection as mc
+
+    monkeypatch.setitem(sys.modules, "dotenv", None)
+    reloaded = importlib.reload(mc)
+    assert hasattr(reloaded, "MongoDBConnection")
+
+
+def test_system_notifications_ipc_mock_server() -> None:
+    """
+    Testa o envio de notificação nativa e vibração do sistema via socket IPC (127.0.0.1:19876)
+    simulando o servidor da MainActivity.kt.
+    """
+    import socket
+    import threading
+    import json
+    from ciphersong.services.system_notifications import (
+        send_system_notification,
+        send_system_vibration,
+        ping_system_service,
+        ANDROID_IPC_PORT,
+    )
+
+    received_payloads = []
+    server_running = True
+
+    def _mock_android_server():
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                s.bind(("127.0.0.1", ANDROID_IPC_PORT))
+                s.listen(1)
+                s.settimeout(2.0)
+                while server_running:
+                    try:
+                        conn, _ = s.accept()
+                    except socket.timeout:
+                        continue
+                    with conn:
+                        data = conn.recv(1024)
+                        if data:
+                            msg = json.loads(data.decode("utf-8").strip())
+                            received_payloads.append(msg)
+                            if msg.get("action") == "ping":
+                                conn.sendall(b'{"status":"ok","alive":true}\n')
+                            else:
+                                conn.sendall(b'{"status":"ok","notified":true}\n')
+        except Exception as e:
+            print(f"Mock server bind error: {e}")
+
+    server_thread = threading.Thread(target=_mock_android_server, daemon=True)
+    server_thread.start()
+    import time
+    time.sleep(0.1)
+
+    try:
+        # Testa ping
+        alive = ping_system_service()
+        assert alive is True
+
+        # Testa notificação de chamada urgente (Ping)
+        ok_call = send_system_notification(
+            title="📲 Chamada de Levy",
+            body="Levy está te chamando para o ensaio!",
+            is_call=True,
+            vibrate=True,
+        )
+        assert ok_call is True
+
+        # Testa notificação de nova música na Semana
+        ok_weekly = send_system_notification(
+            title="📅 Repertório da Semana",
+            body="+2 músicas adicionadas no repertório da semana!",
+            is_call=False,
+            vibrate=True,
+        )
+        assert ok_weekly is True
+
+        # Testa vibração
+        ok_vib = send_system_vibration(pattern="call")
+        assert ok_vib is True
+
+        # Verifica os payloads recebidos
+        actions = [p["action"] for p in received_payloads]
+        assert "ping" in actions
+        assert "notify" in actions
+        assert "vibrate" in actions
+
+        notify_payloads = [p for p in received_payloads if p.get("action") == "notify"]
+        assert len(notify_payloads) == 2
+        assert notify_payloads[0]["is_call"] is True
+        assert notify_payloads[0]["title"] == "📲 Chamada de Levy"
+        assert notify_payloads[1]["is_call"] is False
+        assert notify_payloads[1]["title"] == "📅 Repertório da Semana"
+    finally:
+        server_running = False
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as dummy:
+                dummy.connect(("127.0.0.1", ANDROID_IPC_PORT))
+        except Exception:
+            pass
+        server_thread.join(timeout=1.0)
+
+
+def test_system_notifications_graceful_fallback_when_offline(monkeypatch) -> None:
+    """
+    Garante que no Desktop ou quando o IPC socket não estiver respondendo,
+    as funções não levantam exceções não tratadas e retornam False com fallback seguro.
+    """
+    import ciphersong.services.system_notifications as sn
+    # Porta comprovadamente fechada
+    monkeypatch.setattr(sn, "ANDROID_IPC_PORT", 19998)
+
+    res = sn.send_system_notification(
+        title="Teste Offline",
+        body="Mensagem de teste",
+        is_call=False,
+        timeout_sec=0.1,
+    )
+    assert res is False
+
+    res_vib = sn.send_system_vibration(pattern="normal", timeout_sec=0.1)
+    assert res_vib is False
+

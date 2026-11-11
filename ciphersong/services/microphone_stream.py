@@ -104,6 +104,8 @@ class LiveMicrophoneService:
     def reset_session(self) -> None:
         """Zera a contagem de notas e estimativa de tom da sessão atual."""
         self.key_estimator.reset()
+        if hasattr(self.pitch_detector, "reset_state"):
+            self.pitch_detector.reset_state()
         self._pcm_ring_buffer = np.zeros(0, dtype=np.float32)
         self.last_frame = None
         self.last_key = None
@@ -278,3 +280,4 @@ class LiveMicrophoneService:
             except Exception:
                 pass
             self._stream = None
+        self.reset_session()

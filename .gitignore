@@ -9,5 +9,15 @@ __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
+build/
 .agents/
 .antigravityrules
+ciphersong-web/
+graphify-out/
+builds/
+.deslop/
+*.apk
+*.aab
+*.idsig
+*.jks
+*.keystore

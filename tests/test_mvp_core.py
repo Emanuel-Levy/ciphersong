@@ -148,6 +148,126 @@ class TestCipherSongMVPCore(unittest.TestCase):
             self.assertEqual(len(res_key), 1)
             self.assertEqual(res_key[0].title, "Bondade de Deus")
 
+    def test_key_estimator_top_three_keys(self) -> None:
+        """Garante que o estimador calcula o 1º, 2º e 3º tons mais prováveis."""
+        estimator = MusicalKeyEstimator(min_samples_for_estimation=5)
+        # Frequências da escala de Sol Maior (G, B, D, C, E, F#)
+        g_notes_hz = [196.0, 246.94, 293.66, 196.0, 261.63, 329.63, 369.99]
+        for hz in g_notes_hz:
+            estimator.add_note(frequency_to_note(hz))
+
+        estimation = estimator.estimate_current_key()
+        self.assertIsNotNone(estimation)
+        assert estimation is not None
+        self.assertEqual(estimation.key_en, "G")
+        self.assertTrue(estimation.second_key_en != "")
+        self.assertTrue(estimation.third_key_en != "")
+        self.assertGreaterEqual(estimation.confidence, estimation.second_confidence)
+        self.assertGreaterEqual(estimation.second_confidence, estimation.third_confidence)
+
+    def test_vault_offline_sync_and_filter(self) -> None:
+        """Testa o ciclo de sincronização offline e marcação de sincronizado."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            vault_file = Path(temp_dir) / "test_sync_vault.enc"
+            vault = EncryptedSessionVault(vault_path=vault_file, secret_passphrase="test-sync-key")
+
+            # Salva música offline
+            s1 = vault.save_song(
+                title="Música Offline",
+                keys=["C (Dó)"],
+                soloist="Gabriel",
+                versao="Acústico",
+                synced=False,
+            )
+            s2 = vault.save_song(
+                title="Música Online",
+                keys=["D (Ré)"],
+                soloist="Mariana",
+                synced=True,
+            )
+
+            unsynced = vault.get_unsynced_songs()
+            self.assertEqual(len(unsynced), 1)
+            self.assertEqual(unsynced[0].id, s1.id)
+
+            # Marca como sincronizado
+            vault.mark_song_as_synced(s1.id)
+            self.assertEqual(len(vault.get_unsynced_songs()), 0)
+
+            # Filtro estrito por solista
+            res_gabriel = vault.search_songs(soloist="Gabriel")
+            self.assertEqual(len(res_gabriel), 1)
+            self.assertEqual(res_gabriel[0].title, "Música Offline")
+
+            res_mariana = vault.search_songs(soloist="Mariana")
+            self.assertEqual(len(res_mariana), 1)
+            self.assertEqual(res_mariana[0].title, "Música Online")
+
+    def test_key_estimator_eu_navegarei_identifies_a_minor(self) -> None:
+        """
+        Simula o canto de 'Eu Navegarei', onde a nota Mi (5ª de Am) é atacada e sustentada,
+        mas o desenvolvimento da melodia (Lá, Si, Dó, Ré, Fá, Sol#) resolve inequivocamente em Lá Menor (Am).
+        """
+        estimator = MusicalKeyEstimator(min_samples_for_estimation=5)
+        # Mi sustentado (329.63 Hz)
+        for _ in range(4):
+            estimator.add_note(frequency_to_note(329.63))
+
+        # Frase melódica desenvolvida: Lá (440), Si (493.88), Dó (523.25), Ré (587.33), Fá (349.23), Sol# (415.30), Lá (440)
+        melodic_phrase_hz = [440.0, 493.88, 523.25, 493.88, 587.33, 349.23, 415.30, 440.0, 440.0]
+        final_est = None
+        for hz in melodic_phrase_hz:
+            final_est = estimator.add_note(frequency_to_note(hz))
+
+        self.assertIsNotNone(final_est)
+        assert final_est is not None
+        self.assertEqual(final_est.key_en, "Am")
+        self.assertEqual(final_est.key_pt, "Lá Menor")
+        self.assertEqual(final_est.relative_key_en, "C")
+
+    def test_all_application_modules_import_cleanly(self) -> None:
+        """Garante que todos os módulos, serviços, views e submódulos importam sem ModuleNotFoundError."""
+        import importlib
+        modules = [
+            "ciphersong.core",
+            "ciphersong.core.music_theory",
+            "ciphersong.core.key_estimator",
+            "ciphersong.core.pitch_detector",
+            "ciphersong.core.encrypted_vault",
+            "ciphersong.database",
+            "ciphersong.security",
+            "ciphersong.security.local_vault",
+            "ciphersong.services",
+            "ciphersong.services.api_client",
+            "ciphersong.services.email_service",
+            "ciphersong.services.microphone_stream",
+            "ciphersong.services.microphone",
+            "ciphersong.ui",
+            "ciphersong.ui.views.auth_view",
+            "ciphersong.ui.views.detector_view",
+            "ciphersong.ui.views.repertoire_view",
+            "ciphersong.ui.views.team_view",
+            "ciphersong.ui.views.to_rehearse_view",
+            "ciphersong.ui.views.weekly_view",
+            "ciphersong.ui.app_flet",
+            "main",
+        ]
+        for m in modules:
+            with self.subTest(module=m):
+                mod = importlib.import_module(m)
+                self.assertIsNotNone(mod)
+
+    def test_ciphersong_app_and_views_instantiation(self) -> None:
+        """Garante que todas as views modulares e build_ciphersong_app instanciam controles Flet sem erro de kwargs."""
+        import asyncio
+        from unittest.mock import MagicMock
+        from ciphersong.ui.app_flet import build_ciphersong_app
+        mock_page = MagicMock()
+        mock_page.overlay = []
+        res = build_ciphersong_app(mock_page)
+        if asyncio.iscoroutine(res):
+            asyncio.run(res)
+
 
 if __name__ == "__main__":
     unittest.main()
