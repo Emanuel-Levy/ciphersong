@@ -2371,6 +2371,17 @@ def criar_musica(
                 )
 
     try:
+        from ciphersong.core.music_theory import (
+            auto_transpose_chord_sheet_to_key,
+            normalize_musical_key,
+        )
+
+        primary_tone = payload.tons[0] if payload.tons else (payload.tom_original or "C")
+        canonical_tone = normalize_musical_key(primary_tone) or primary_tone
+        raw_cifra = (payload.cifra or "").strip()
+        if raw_cifra and primary_tone:
+            raw_cifra, _, _, _ = auto_transpose_chord_sheet_to_key(raw_cifra, primary_tone)
+
         saved_doc = _call_repo(
             repo.salvar_musica,
             titulo=payload.titulo,
@@ -2379,8 +2390,8 @@ def criar_musica(
             versao=payload.versao or "Original",
             usuario_id=usuario_id,
             equipe_id=resolved_equipe_id,
-            cifra=payload.cifra or "",
-            tom_original=payload.tom_original or (payload.tons[0] if payload.tons else "C"),
+            cifra=raw_cifra,
+            tom_original=canonical_tone,
         )
         dispatch_team_event(
             resolved_equipe_id,
@@ -2417,17 +2428,29 @@ def atualizar_musica_endpoint(
         if not equipes_repo.usuario_pertence_a_equipe(doc_equipe, usuario_id):
             raise HTTPException(status_code=403, detail="Acesso não autorizado para esta equipe.")
 
+    from ciphersong.core.music_theory import (
+        auto_transpose_chord_sheet_to_key,
+        normalize_musical_key,
+    )
+
+    clean_tons = [t.strip() for t in payload.tons if t.strip()]
+    primary_tone = clean_tons[0] if clean_tons else (payload.tom_original or "C")
+    canonical_tone = normalize_musical_key(primary_tone) or primary_tone
+
     update_fields: dict[str, Any] = {
         "titulo": payload.titulo.strip(),
         "cantor_principal": payload.cantor_principal.strip(),
-        "tons": [t.strip() for t in payload.tons if t.strip()],
+        "tons": clean_tons,
         "versao": (payload.versao or "Original").strip(),
         "atualizado_em": datetime.now(timezone.utc).isoformat(),
     }
     if payload.cifra is not None:
-        update_fields["cifra"] = payload.cifra.strip()
-    if payload.tom_original is not None:
-        update_fields["tom_original"] = payload.tom_original.strip()
+        raw_cifra = payload.cifra.strip()
+        if raw_cifra and primary_tone:
+            raw_cifra, _, _, _ = auto_transpose_chord_sheet_to_key(raw_cifra, primary_tone)
+        update_fields["cifra"] = raw_cifra
+    if payload.tom_original is not None or primary_tone:
+        update_fields["tom_original"] = canonical_tone
 
     repo.collection.update_one({"_id": ObjectId(song_id)}, {"$set": update_fields})
     updated = repo.collection.find_one({"_id": ObjectId(song_id)})
