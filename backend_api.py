@@ -3705,8 +3705,19 @@ async def webhook_stripe(request: Request) -> dict[str, Any]:
         except Exception as json_err:
             raise HTTPException(status_code=400, detail="Payload de webhook não é um JSON válido.") from json_err
 
-    event_type = event.get("type", "")
-    event_data = event.get("data", {}).get("object", {})
+    # Compatibilidade com stripe-python >= 8.0.0 / 17.0.0 (Event não herda mais de dict)
+    if hasattr(event, "to_dict"):
+        event_dict = event.to_dict()
+    elif isinstance(event, dict):
+        event_dict = event
+    else:
+        try:
+            event_dict = dict(event)
+        except Exception:
+            event_dict = getattr(event, "__dict__", {})
+
+    event_type = event_dict.get("type", "")
+    event_data = (event_dict.get("data") or {}).get("object") or {}
     users_repo = get_users_repo()
 
     logger.info("Stripe Webhook recebido: %s", event_type)
@@ -3919,7 +3930,7 @@ if os.getenv("ENABLE_FLET_WEB") == "1":
 else:
     @app.get("/", include_in_schema=False)
     def serve_spa_root() -> Any:
-        if os.getenv("MAINTENANCE_MODE", "1").lower() in ("1", "true"):
+        if os.getenv("MAINTENANCE_MODE", "0").lower() in ("1", "true"):
             return serve_maintenance_page()
         index_file = os.path.join(spa_dist_dir, "index.html")
         if os.path.isfile(index_file):
@@ -3980,7 +3991,7 @@ else:
     def serve_spa_fallback(full_path: str) -> Any:
         if full_path.startswith("api/"):
             raise HTTPException(status_code=404, detail="Endpoint da API não encontrado.")
-        if os.getenv("MAINTENANCE_MODE", "1").lower() in ("1", "true"):
+        if os.getenv("MAINTENANCE_MODE", "0").lower() in ("1", "true"):
             if not full_path.startswith("assets/") and not full_path.startswith("icons/") and not full_path.endswith((".js", ".css", ".png", ".svg", ".ico", ".jpg", ".webp")):
                 return serve_maintenance_page()
         if os.path.isdir(spa_dist_dir):

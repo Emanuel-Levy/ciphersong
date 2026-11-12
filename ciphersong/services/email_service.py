@@ -39,7 +39,7 @@ class TransactionalEmailService:
         self.smtp_port = int(os.getenv("SMTP_PORT") or 587)
         self.smtp_user = os.getenv("SMTP_USER")
         self.smtp_password = os.getenv("SMTP_PASSWORD") or os.getenv("SMTP_PASS")
-        raw_from = os.getenv("RESEND_FROM") or os.getenv("SMTP_FROM") or "CipherSong <contato@ciphersong.com.br>"
+        raw_from = os.getenv("RESEND_FROM") or os.getenv("SMTP_FROM") or "CipherSong <ciphersong.gerencia@gmail.com>"
         self.from_email = raw_from.strip("\"'")
 
         # Histórico em memória dos últimos e-mails enviados (útil para testes automatizados)
