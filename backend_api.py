@@ -3919,7 +3919,7 @@ if os.getenv("ENABLE_FLET_WEB") == "1":
 else:
     @app.get("/", include_in_schema=False)
     def serve_spa_root() -> Any:
-        if os.getenv("MAINTENANCE_MODE", "").lower() in ("1", "true"):
+        if os.getenv("MAINTENANCE_MODE", "1").lower() in ("1", "true"):
             return serve_maintenance_page()
         index_file = os.path.join(spa_dist_dir, "index.html")
         if os.path.isfile(index_file):
@@ -3934,6 +3934,8 @@ else:
     def serve_maintenance_page() -> Any:
         public_dir = os.path.join(base_dir, "web", "public")
         maint_file = os.path.join(public_dir, "maintenance.html")
+        if not os.path.isfile(maint_file):
+            maint_file = os.path.join(base_dir, "ciphersong-web", "web", "public", "maintenance.html")
         if not os.path.isfile(maint_file):
             maint_file = os.path.join(spa_dist_dir, "maintenance.html")
         if os.path.isfile(maint_file):
@@ -3978,6 +3980,9 @@ else:
     def serve_spa_fallback(full_path: str) -> Any:
         if full_path.startswith("api/"):
             raise HTTPException(status_code=404, detail="Endpoint da API não encontrado.")
+        if os.getenv("MAINTENANCE_MODE", "1").lower() in ("1", "true"):
+            if not full_path.startswith("assets/") and not full_path.startswith("icons/") and not full_path.endswith((".js", ".css", ".png", ".svg", ".ico", ".jpg", ".webp")):
+                return serve_maintenance_page()
         if os.path.isdir(spa_dist_dir):
             candidate = os.path.normpath(os.path.join(spa_dist_dir, full_path))
             if candidate.startswith(os.path.normpath(spa_dist_dir)) and os.path.isfile(candidate):
