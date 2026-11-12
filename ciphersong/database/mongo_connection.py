@@ -393,17 +393,45 @@ class UsuariosRepository:
         except Exception:
             return []
 
-    def excluir_usuario(self, user_id: str) -> bool:
-        """Exclui permanentemente o documento do usuário na coleção 'usuarios' (LGPD Art. 18, VI)."""
+    def excluir_usuario(self, user_id: str, email: Optional[str] = None) -> bool:
+        """
+        Exclui permanentemente o documento do usuário na coleção 'usuarios' no MongoDB (LGPD Art. 18, VI).
+        Tenta por ObjectId, string _id e fallback por email único, garantindo remoção definitiva.
+        """
         deleted = False
+        clean_uid = str(user_id).strip()
+
+        # 1. Tenta exclusão por ObjectId
         try:
-            res_oid = self.collection.delete_one({"_id": ObjectId(user_id)})
+            res_oid = self.collection.delete_one({"_id": ObjectId(clean_uid)})
             deleted = getattr(res_oid, "deleted_count", 0) > 0
         except Exception:
             pass
+
+        # 2. Tenta exclusão por String ID
         if not deleted:
-            res_str = self.collection.delete_one({"_id": str(user_id)})
-            deleted = getattr(res_str, "deleted_count", 0) > 0
+            try:
+                res_str = self.collection.delete_one({"_id": clean_uid})
+                deleted = getattr(res_str, "deleted_count", 0) > 0
+            except Exception:
+                pass
+
+        # 3. Fallback por email único caso _id não tenha casado
+        if not deleted and email and str(email).strip():
+            clean_email = str(email).strip().lower()
+            try:
+                res_email = self.collection.delete_one({"email": clean_email})
+                deleted = getattr(res_email, "deleted_count", 0) > 0
+            except Exception:
+                pass
+
+        # 4. Limpeza adicional por garantia estrita: elimina qualquer resquício com esse e-mail no MongoDB
+        if email and str(email).strip():
+            try:
+                self.collection.delete_many({"email": str(email).strip().lower()})
+            except Exception:
+                pass
+
         return deleted
 
     def conceder_cortesia(self, user_id: str, ate_iso: str) -> Optional[dict[str, Any]]:
@@ -447,6 +475,51 @@ class UsuariosRepository:
             )
         except Exception:
             pass
+
+    def atualizar_assinatura(
+        self,
+        user_id: str,
+        assinatura_data: dict[str, Any],
+    ) -> bool:
+        """Atualiza os dados de assinatura (Stripe) do usuário."""
+        try:
+            try:
+                target_id: Any = ObjectId(user_id)
+            except Exception:
+                target_id = str(user_id)
+            res = self.collection.update_one(
+                {"_id": target_id},
+                {
+                    "$set": {
+                        "assinatura": assinatura_data,
+                        "atualizado_em": datetime.now(timezone.utc).isoformat(),
+                    }
+                },
+            )
+            if getattr(res, "matched_count", 0) == 0 and target_id != str(user_id):
+                res = self.collection.update_one(
+                    {"_id": str(user_id)},
+                    {
+                        "$set": {
+                            "assinatura": assinatura_data,
+                            "atualizado_em": datetime.now(timezone.utc).isoformat(),
+                        }
+                    },
+                )
+            return getattr(res, "modified_count", 0) > 0
+        except Exception:
+            return False
+
+    def buscar_por_stripe_customer_id(self, customer_id: str) -> Optional[dict[str, Any]]:
+        """Busca usuário pelo ID de cliente da Stripe."""
+        if not customer_id:
+            return None
+        doc = self.collection.find_one({"assinatura.stripe_customer_id": customer_id})
+        if not doc:
+            doc = self.collection.find_one({"stripe_customer_id": customer_id})
+        if doc:
+            doc["_id"] = str(doc["_id"])
+        return doc
 
 
 class MusicasEnsaioRepository:
@@ -1423,6 +1496,14 @@ class RefreshTokensRepository:
             {"$set": {"revogado": True, "revogado_em": int(time.time())}},
         )
         return res.modified_count
+
+    def excluir_todos_usuario(self, usuario_id: str) -> int:
+        """Exclui permanentemente todos os registros de refresh tokens do usuário na coleção 'refresh_tokens' no MongoDB."""
+        try:
+            res = self.collection.delete_many({"usuario_id": str(usuario_id).strip()})
+            return getattr(res, "deleted_count", 0)
+        except Exception:
+            return 0
 
 
 
