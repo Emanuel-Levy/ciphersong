@@ -44,7 +44,7 @@ FLAT_KEYS: set[str] = {
 }
 
 CHORD_CORE_PATTERN = (
-    r"[A-G](?:#|b)?(?:m|maj|min|dim|aug|sus|add|\+|\-|º|°|\([#b+\-0-9M/]+\)|[0-9M])*(?:\/[A-G](?:#|b)?)?"
+    r"[A-G](?:#|b)?(?:m|maj|min|dim|aug|sus|add|\+|\-|º|°|\([#b+\-0-9M/a-zA-Z]+\)|b5|\/[0-9]+|[0-9M/\-])*(?:\/[A-G](?:#|b)?)?"
 )
 CHORD_REGEX = re.compile(f"^{CHORD_CORE_PATTERN}$")
 
@@ -70,6 +70,19 @@ class PitchNote:
         return f"{self.note_pt}{self.octave}"
 
 
+def clean_chord_sheet(sheet_text: str) -> str:
+    """Remove tags HTML, quebras de linha Windows/Mac e caracteres invisíveis."""
+    if not sheet_text or not isinstance(sheet_text, str):
+        return ""
+    text = sheet_text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"</(p|div)>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = text.replace("\u00a0", " ")
+    text = re.sub(r"[\u200b-\u200d\ufeff]", "", text)
+    return text
+
+
 def frequency_to_note(frequency_hz: float, a4_hz: float = 440.0) -> PitchNote:
     """
     Converte uma frequência em Hz para a nota musical mais próxima (padrão A4 = 440 Hz).
@@ -78,14 +91,9 @@ def frequency_to_note(frequency_hz: float, a4_hz: float = 440.0) -> PitchNote:
     if frequency_hz <= 0 or math.isnan(frequency_hz) or math.isinf(frequency_hz):
         raise ValueError("A frequência deve ser um número positivo maior que zero.")
 
-    # Número MIDI exato (contínuo) onde A4 (440 Hz) = 69
     exact_midi = 69.0 + 12.0 * math.log2(frequency_hz / a4_hz)
     nearest_midi = int(round(exact_midi))
-
-    # Frequência nominal exata da nota temperada (sem desvio de afinação)
     nominal_hz = a4_hz * (2.0 ** ((nearest_midi - 69.0) / 12.0))
-
-    # Desvio em cents (-50 a +50)
     cents = (exact_midi - nearest_midi) * 100.0
 
     pitch_class = nearest_midi % 12
@@ -109,11 +117,9 @@ def relative_minor_or_major(pitch_class: int, is_major: bool) -> tuple[str, str]
     nos formatos (Inglês, Português).
     """
     if is_major:
-        # Relativa menor fica 3 semitons abaixo (ou +9 mod 12)
         rel_idx = (pitch_class - 3) % 12
         return f"{NOTE_NAMES_EN[rel_idx]}m", f"{NOTE_NAMES_PT[rel_idx]} Menor"
     else:
-        # Relativa maior fica 3 semitons acima
         rel_idx = (pitch_class + 3) % 12
         return f"{NOTE_NAMES_EN[rel_idx]}", f"{NOTE_NAMES_PT[rel_idx]} Maior"
 
@@ -242,7 +248,7 @@ def transpose_chord(chord: str, semitones: int, prefer_flats: bool = False) -> s
 
 
 def is_chord(token: str) -> bool:
-    if not token or len(token) > 14:
+    if not token or len(token) > 15:
         return False
     clean = token.strip()
     return bool(clean and CHORD_REGEX.match(clean))
@@ -263,7 +269,7 @@ def is_chord_line(line: str) -> bool:
     if re.match(r"^[eEaAdDgGbB]\|", trimmed):
         return False
 
-    without_section = re.sub(r"^\[[^\]]+\]\s*", "", trimmed).strip()
+    without_section = re.sub(r"^(\[[^\]]+\]|[A-Za-z0-9_\u00c0-\u00ff\s]{1,12}:)\s*", "", trimmed).strip()
     if not without_section:
         return False
 
@@ -273,13 +279,11 @@ def is_chord_line(line: str) -> bool:
         return False
 
     chord_count = sum(1 for t in meaningful if is_chord(t))
-    if chord_count == len(meaningful):
-        return True
-    return len(meaningful) >= 3 and (chord_count / len(meaningful)) >= 0.75
+    return (chord_count / len(meaningful)) >= 0.5
 
 
 def _transpose_chord_line_preserving_columns(line: str, semitones: int, prefer_flats: bool) -> str:
-    sec_match = re.match(r"^(\s*\[[^\]]+\]\s*)(.*)$", line)
+    sec_match = re.match(r"^(\s*\[[^\]]+\]\s*|\s*[A-Za-z0-9_\u00c0-\u00ff\s]{1,12}:\s*)(.*)$", line)
     prefix = sec_match.group(1) if sec_match else ""
     body = sec_match.group(2) if sec_match else line
 
@@ -311,8 +315,9 @@ def transpose_chord_sheet(sheet_text: str, semitones: int, prefer_flats: bool = 
     if not sheet_text or semitones == 0:
         return sheet_text
 
+    cleaned = clean_chord_sheet(sheet_text)
     out_lines: list[str] = []
-    for line in sheet_text.split("\n"):
+    for line in cleaned.split("\n"):
         tom_m = re.match(
             r"^(\s*\[?\s*(?:tom(?:\s+original)?|tone|key)\s*:\s*)([^\n\]]+?)(\s*\]?\s*)$",
             line,
@@ -347,12 +352,13 @@ def transpose_chord_sheet(sheet_text: str, semitones: int, prefer_flats: bool = 
 def extract_all_chords_in_order(sheet_text: str) -> list[str]:
     if not sheet_text:
         return []
+    cleaned = clean_chord_sheet(sheet_text)
     chords: list[str] = []
     token_re = re.compile(f"(?:^|\\s)({CHORD_CORE_PATTERN})(?=\\s|$)")
 
-    for line in sheet_text.split("\n"):
+    for line in cleaned.split("\n"):
         if is_chord_line(line):
-            without_sec = re.sub(r"^\[[^\]]+\]\s*", "", line.strip())
+            without_sec = re.sub(r"^(\[[^\]]+\]|[A-Za-z0-9_\u00c0-\u00ff\s]{1,12}:)\s*", "", line.strip())
             pos = 0
             while pos < len(without_sec):
                 m = token_re.search(without_sec, pos)
@@ -377,9 +383,11 @@ def detect_chord_sheet_key(sheet_text: str, target_is_minor: bool = False) -> st
     if not sheet_text or not sheet_text.strip():
         return None
 
+    cleaned = clean_chord_sheet(sheet_text)
+
     explicit_m = re.search(
         r"^\s*\[?\s*(?:tom(?:\s+original)?|tone|key)\s*:\s*([^\n\]]+?)\s*\]?\s*$",
-        sheet_text,
+        cleaned,
         re.IGNORECASE | re.MULTILINE,
     )
     if explicit_m:
@@ -387,7 +395,7 @@ def detect_chord_sheet_key(sheet_text: str, target_is_minor: bool = False) -> st
         if explicit_parsed:
             return explicit_parsed["canonical"]
 
-    chord_tokens = extract_all_chords_in_order(sheet_text)
+    chord_tokens = extract_all_chords_in_order(cleaned)
     if not chord_tokens:
         return None
 
@@ -462,17 +470,17 @@ def detect_chord_sheet_key(sheet_text: str, target_is_minor: bool = False) -> st
 
         first_int = (first_c[0] - tonic) % 12
         if first_int == 0 and not first_c[2] and not first_c[3]:
-            score += max(8.0, total_c * 0.8)
+            score += max(10.0, total_c * 1.0)
         elif first_int == 9 and first_c[2] and target_is_minor:
-            score += max(6.0, total_c * 0.6)
+            score += max(8.0, total_c * 0.8)
         elif first_int == 5 and not first_c[2]:
-            score += max(2.5, total_c * 0.25)
+            score += max(2.0, total_c * 0.2)
 
         last_int = (last_c[0] - tonic) % 12
         if last_int == 0 and not last_c[2] and not last_c[3]:
-            score += max(6.0, total_c * 0.6)
+            score += max(5.0, total_c * 0.5)
         elif last_int == 9 and last_c[2] and target_is_minor:
-            score += max(4.5, total_c * 0.45)
+            score += max(4.0, total_c * 0.4)
 
         if score > best_score:
             best_score = score
@@ -508,17 +516,18 @@ def auto_transpose_chord_sheet_to_key(sheet_text: str, target_tone_raw: str) -> 
     if not sheet_text or not sheet_text.strip() or not target_tone_raw or not target_tone_raw.strip():
         return sheet_text, None, None, 0
 
+    cleaned = clean_chord_sheet(sheet_text)
     target_parsed = parse_musical_key(target_tone_raw)
     if not target_parsed:
-        return sheet_text, None, None, 0
+        return cleaned, None, None, 0
 
-    detected_key = detect_chord_sheet_key(sheet_text, target_is_minor=target_parsed["is_minor"])
+    detected_key = detect_chord_sheet_key(cleaned, target_is_minor=target_parsed["is_minor"])
     if not detected_key:
-        return sheet_text, None, target_parsed["canonical"], 0
+        return cleaned, None, target_parsed["canonical"], 0
 
     semitones = calculate_semitone_difference(detected_key, target_parsed["canonical"])
     if semitones == 0:
-        return sheet_text, detected_key, target_parsed["canonical"], 0
+        return cleaned, detected_key, target_parsed["canonical"], 0
 
-    transposed = transpose_chord_sheet(sheet_text, semitones, prefer_flats=target_parsed["prefer_flats"])
+    transposed = transpose_chord_sheet(cleaned, semitones, prefer_flats=target_parsed["prefer_flats"])
     return transposed, detected_key, target_parsed["canonical"], semitones
