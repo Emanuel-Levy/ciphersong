@@ -223,61 +223,106 @@ class UsuariosRepository:
         doc["_id"] = str(res.inserted_id)
         return doc
 
-    def autenticar_ou_criar_google(self, email: str, nome: str, google_token_hash: str) -> dict[str, Any]:
+    def autenticar_ou_criar_google(
+        self,
+        email: str,
+        nome: str,
+        google_token_hash: str,
+        foto_url: Optional[str] = None,
+    ) -> dict[str, Any]:
         """
-        Autentica um usuário via Conta Google oficial ou cria seu cadastro vinculado no MongoDB Atlas,
-        garantindo unicidade estrita de e-mail e de nome de usuário.
+        Autentica um usuário via Conta Google oficial ou vincula/cria seu cadastro no MongoDB Atlas.
+        Garante que usuários pré-existentes criados por e-mail ou OTP possam logar perfeitamente
+        com sua Conta Google de mesmo e-mail, preservando dados, repertório e sem falhas de colisão de nome.
         """
         clean_email = email.strip().lower()
         clean_nome = (nome or "").strip()
 
         existing = self.buscar_por_email(clean_email)
         if existing:
-            # Usuário já cadastrado com esse e-mail: confirma a conta vinculada existente
-            if clean_nome and clean_nome != existing.get("nome"):
-                # Verifica se o novo nome desejado não colide com outro usuário
-                name_holder = self.buscar_por_nome(clean_nome)
-                if name_holder and str(name_holder.get("_id")) != str(existing.get("_id")):
-                    raise ValueError(f"O nome de usuário '{clean_nome}' já pertence a outra conta.")
-                try:
-                    if hasattr(self.collection, "update_one"):
-                        self.collection.update_one(
-                            {"_id": ObjectId(existing["_id"])},
-                            {"$set": {"nome": clean_nome}},
-                        )
-                    existing["nome"] = clean_nome
-                except Exception:
-                    pass
+            # Conta existente (criada via e-mail/senha, OTP ou Google anterior):
+            # Vincula a conta ao Google com segurança e preserva o histórico de repertório e bandas.
+            update_fields: dict[str, Any] = {
+                "google_vinculado": True,
+                "google_token_hash": google_token_hash,
+            }
+
+            # Se a conta ainda não tem avatar/foto de perfil e o Google forneceu uma, salva
+            if foto_url and not existing.get("foto_url") and not existing.get("avatar"):
+                update_fields["foto_url"] = foto_url
+                update_fields["avatar"] = foto_url
+                existing["foto_url"] = foto_url
+                existing["avatar"] = foto_url
+
+            # Gerenciamento de nome:
+            # Se o usuário já tiver um nome no sistema, preserva intacto sem conflitos.
+            # Se não tiver nome, tenta usar o nome do Google (resolvendo qualquer colisão com segurança).
+            current_name = (existing.get("nome") or "").strip()
+            if not current_name:
+                base_candidate = clean_nome or clean_email.split("@")[0]
+                candidate = base_candidate
+                c = 1
+                while True:
+                    holder = self.buscar_por_nome(candidate)
+                    if not holder or str(holder.get("_id")) == str(existing.get("_id")):
+                        break
+                    candidate = f"{base_candidate}_{c}"
+                    c += 1
+                update_fields["nome"] = candidate
+                existing["nome"] = candidate
+
+            # Aplica atualização atômica de vínculo
+            try:
+                if hasattr(self.collection, "update_one") and update_fields:
+                    self.collection.update_one(
+                        {"_id": ObjectId(existing["_id"])},
+                        {"$set": update_fields},
+                    )
+            except Exception as update_err:
+                logger.warning("Falha ao atualizar metadados Google na conta existente: %s", update_err)
+
+            existing["google_vinculado"] = True
             return existing
 
-        # Novo usuário criando conta com Google: exige nome de usuário único
-        if not clean_nome:
-            raise ValueError("Por favor, informe seu Nome de Usuário para vincular à sua Conta Google.")
+        # Novo usuário criando conta com Google pela primeira vez:
+        base_name = clean_nome or clean_email.split("@")[0]
+        final_name = base_name
+        counter = 1
+        while self.buscar_por_nome(final_name):
+            final_name = f"{base_name}_{counter}"
+            counter += 1
 
-        existing_name = self.buscar_por_nome(clean_nome)
-        if existing_name:
-            raise ValueError(f"O nome de usuário '{clean_nome}' já está em uso. Por favor, escolha outro nome.")
-
-        return self.criar_usuario(
+        new_user = self.criar_usuario(
             email=clean_email,
             senha_hash=google_token_hash,
-            nome=clean_nome,
+            nome=final_name,
             provedor="google",
         )
+        if foto_url:
+            try:
+                if hasattr(self.collection, "update_one"):
+                    self.collection.update_one(
+                        {"_id": ObjectId(new_user["_id"])},
+                        {"$set": {"foto_url": foto_url, "avatar": foto_url, "google_vinculado": True}},
+                    )
+                new_user["foto_url"] = foto_url
+                new_user["avatar"] = foto_url
+                new_user["google_vinculado"] = True
+            except Exception:
+                pass
+        return new_user
 
     def autenticar_ou_criar_otp(self, email: str, nome: Optional[str] = None) -> dict[str, Any]:
         """
         Autentica o usuário após validação de código OTP enviado por e-mail,
         ou cria uma nova conta passwordless sem exigência de senha.
-        Bloqueia e-mails já registrados pelo Google Auth conforme exigência de segurança.
+        Permite login OTP mesmo para contas vinculadas ao Google, pois o código OTP no e-mail comprova posse da conta.
         """
         clean_email = email.strip().lower()
         clean_nome = (nome or "").strip()
 
         existing = self.buscar_por_email(clean_email)
         if existing:
-            if existing.get("provedor") == "google":
-                raise ValueError("Este e-mail está cadastrado com a Conta Google. Faça login pelo botão 'Fazer Login com o Google'.")
             if clean_nome and clean_nome != existing.get("nome"):
                 name_holder = self.buscar_por_nome(clean_nome)
                 if not name_holder or str(name_holder.get("_id")) == str(existing.get("_id")):

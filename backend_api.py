@@ -1084,7 +1084,8 @@ def login_google(payload: UserGoogleAuthPayload) -> dict[str, Any]:
             "foto_url": user_doc.get("foto_url") or user_doc.get("avatar") or "",
             "avatar": user_doc.get("avatar") or user_doc.get("foto_url") or "",
             "termos_aceitos": bool(user_doc.get("termos_aceitos", False)),
-            "provedor": "google",
+            "provedor": user_doc.get("provedor") or "google",
+            "google_vinculado": True,
         },
     }
 
@@ -1354,6 +1355,7 @@ def google_oauth_callback(
         )
 
     name = (user_info.get("name") or user_info.get("given_name") or email.split("@")[0]).strip()
+    picture = (user_info.get("picture") or "").strip() or None
     google_token_hash = hash_password(f"google-oauth2::{email}")
     users_repo = get_users_repo()
 
@@ -1362,12 +1364,13 @@ def google_oauth_callback(
             email=email,
             nome=name,
             google_token_hash=google_token_hash,
+            foto_url=picture,
         )
     except Exception as exc:
         logger.error("Falha ao salvar usuário autenticado no banco: %s", exc, exc_info=True)
         sep = "&" if "?" in target_root else "?"
         return RedirectResponse(
-            url=f"{target_root}{sep}auth_error={urllib.parse.quote('Erro ao salvar usuário no banco de dados')}",
+            url=f"{target_root}{sep}auth_error={urllib.parse.quote('Erro ao autenticar com a conta Google')}",
             status_code=status.HTTP_302_FOUND,
         )
 
@@ -1430,21 +1433,7 @@ def solicitar_codigo_otp(payload: OTPRequestPayload) -> dict[str, Any]:
             detail="Endereço de e-mail inválido. Verifique o formato digitado.",
         )
 
-    # 1. Proteção AppSec: se o e-mail já estiver cadastrado com Google Auth, bloqueia OTP
-    users_repo = get_users_repo()
-    try:
-        existing = users_repo.buscar_por_email(clean_email)
-        if existing and existing.get("provedor") == "google":
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Este e-mail está cadastrado com a Conta Google. Faça login pelo botão 'Fazer Login com o Google'.",
-            )
-    except HTTPException:
-        raise
-    except Exception:
-        pass
-
-    # 2. Geração segura e rate limiting
+    # 1. Geração segura e rate limiting
     try:
         plain_code, cooldown, expires_min = default_otp_manager.request_otp(
             email=clean_email,
@@ -3953,6 +3942,23 @@ else:
             content="<h1>CipherSong em Manutenção Programada</h1><p>Voltaremos em instantes com novidades para sua equipe musical!</p>",
             status_code=503,
         )
+
+    @app.get("/termos", include_in_schema=False)
+    @app.get("/termos-de-uso", include_in_schema=False)
+    @app.get("/termos.html", include_in_schema=False)
+    @app.get("/privacidade", include_in_schema=False)
+    @app.get("/politica-de-privacidade", include_in_schema=False)
+    @app.get("/privacidade.html", include_in_schema=False)
+    @app.get("/reembolso", include_in_schema=False)
+    @app.get("/legal", include_in_schema=False)
+    def serve_legal_page() -> Any:
+        public_dir = os.path.join(base_dir, "ciphersong-web", "web", "public")
+        termos_file = os.path.join(public_dir, "termos.html")
+        if not os.path.isfile(termos_file):
+            termos_file = os.path.join(spa_dist_dir, "termos.html")
+        if os.path.isfile(termos_file):
+            return FileResponse(termos_file, media_type="text/html")
+        return HTMLResponse("<h1>Termos e Políticas CipherSong</h1><p><a href='/'>Ir para o CipherSong</a></p>")
 
     @app.get("/ads.txt", include_in_schema=False)
     def serve_ads_txt() -> PlainTextResponse:

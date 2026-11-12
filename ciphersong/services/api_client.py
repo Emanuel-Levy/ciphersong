@@ -354,10 +354,6 @@ class SongsApiClient:
         if not validate_email(clean_email):
             raise ValueError("Endereço de e-mail inválido. Verifique o formato digitado.")
 
-        existing = self.users_repo.buscar_por_email(clean_email)
-        if existing and existing.get("provedor") == "google":
-            raise ValueError("Este e-mail está cadastrado com a Conta Google. Faça login pelo botão 'Fazer Login com o Google'.")
-
         plain_code, cooldown, expires_min = default_otp_manager.request_otp(
             email=clean_email,
             name=nome,
