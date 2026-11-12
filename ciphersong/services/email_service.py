@@ -17,6 +17,14 @@ import smtplib
 import ssl
 from typing import Any, Optional
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+    if os.path.exists("../.env"):
+        load_dotenv("../.env")
+except ImportError:
+    pass
+
 import httpx
 
 logger = logging.getLogger(__name__)
@@ -31,7 +39,8 @@ class TransactionalEmailService:
         self.smtp_port = int(os.getenv("SMTP_PORT") or 587)
         self.smtp_user = os.getenv("SMTP_USER")
         self.smtp_password = os.getenv("SMTP_PASSWORD") or os.getenv("SMTP_PASS")
-        self.from_email = os.getenv("SMTP_FROM") or os.getenv("RESEND_FROM") or "CipherSong <auth@ciphersong.app>"
+        raw_from = os.getenv("RESEND_FROM") or os.getenv("SMTP_FROM") or "CipherSong <contato@ciphersong.com.br>"
+        self.from_email = raw_from.strip("\"'")
 
         # Histórico em memória dos últimos e-mails enviados (útil para testes automatizados)
         self.sent_history: list[dict[str, Any]] = []
@@ -106,14 +115,16 @@ class TransactionalEmailService:
         html_body = self.build_otp_html(codigo, expires_in_minutes)
 
         # 1. Envio via Resend API
-        if self.resend_api_key:
+        resend_key = self.resend_api_key or os.getenv("RESEND_API_KEY")
+        from_addr = (os.getenv("RESEND_FROM") or self.from_email).strip("\"'")
+        if resend_key:
             try:
                 headers = {
-                    "Authorization": f"Bearer {self.resend_api_key}",
+                    "Authorization": f"Bearer {resend_key}",
                     "Content-Type": "application/json",
                 }
                 payload = {
-                    "from": self.from_email,
+                    "from": from_addr,
                     "to": [to_email],
                     "subject": subject,
                     "html": html_body,
@@ -125,7 +136,11 @@ class TransactionalEmailService:
                         info = {"status": "sent", "provider": "resend", "data": resp.json()}
                         self.sent_history.append({"to": to_email, "code": codigo, "info": info})
                         return info
+                    else:
+                        logger.error(f"[Resend Error]: HTTP {resp.status_code} - {resp.text}")
+                        print(f"[Resend Error]: HTTP {resp.status_code} - {resp.text}")
             except Exception as exc:
+                logger.error(f"[Resend Error Fallback]: {exc}", exc_info=True)
                 print(f"[Resend Error Fallback]: {exc}")
 
         # 2. Envio via SMTP Padrão (Gmail, AWS SES, Postmark, Mailgun, etc.)
