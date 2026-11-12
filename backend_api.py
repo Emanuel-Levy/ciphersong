@@ -3907,12 +3907,28 @@ if os.getenv("ENABLE_FLET_WEB") == "1":
 else:
     @app.get("/", include_in_schema=False)
     def serve_spa_root() -> Any:
+        if os.getenv("MAINTENANCE_MODE", "").lower() in ("1", "true"):
+            return serve_maintenance_page()
         index_file = os.path.join(spa_dist_dir, "index.html")
         if os.path.isfile(index_file):
             return FileResponse(index_file, media_type="text/html")
         return HTMLResponse(
             content="<h1>CipherSong Cloud API Online</h1><p>Execute <code>npm run build</code> em <code>web/</code> para servir a SPA.</p>",
             status_code=200,
+        )
+
+    @app.get("/manutencao", include_in_schema=False)
+    @app.get("/maintenance", include_in_schema=False)
+    def serve_maintenance_page() -> Any:
+        public_dir = os.path.join(base_dir, "web", "public")
+        maint_file = os.path.join(public_dir, "maintenance.html")
+        if not os.path.isfile(maint_file):
+            maint_file = os.path.join(spa_dist_dir, "maintenance.html")
+        if os.path.isfile(maint_file):
+            return FileResponse(maint_file, media_type="text/html")
+        return HTMLResponse(
+            content="<h1>CipherSong em Manutenção Programada</h1><p>Voltaremos em instantes com novidades para sua equipe musical!</p>",
+            status_code=503,
         )
 
     @app.get("/ads.txt", include_in_schema=False)
